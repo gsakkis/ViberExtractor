@@ -1,10 +1,12 @@
+import argparse
+import csv
 import itertools as it
 import json
 import logging
 import mimetypes
 import os
 import sqlite3
-import argparse
+import sys
 from datetime import timedelta
 from operator import itemgetter
 
@@ -37,44 +39,29 @@ def fetch(conn, query, one=False):
     return rows[0] if rows else None
 
 
-def fetch_chat_id(conn, name):
-    # 1. search for group chat with this name
-    chat_id = fetch(
-        conn, f"SELECT ChatID FROM ChatInfo WHERE Name='{name}'", one=True
-    ) or fetch(
-        conn, f"SELECT ChatID FROM ChatInfo WHERE instr(Name, '{name}')", one=True
-    )
-    if chat_id:
-        return chat_id[0]
-
-    # 2. no group chat was found: check contacts for an individual name (exact match)
-    contact_id = fetch(
-        conn,
-        f"SELECT ContactID FROM Contact WHERE '{name}' in (Name, ClientName)",
-        one=True,
-    ) or fetch(
-        conn,
-        f"SELECT ContactID FROM Contact "
-        f"WHERE instr(Name, '{name}') OR instr(ClientName, '{name}')",
-        one=True,
-    )
-    if not contact_id:
-        raise ValueError(f"Couldn't find chat name {name!r} in groups or contacts")
-
-    contact_id = contact_id[0]
-
-    # 3. get the chat with contact_id in it that only has 2 people (you + contact)
-    chat_id = fetch(
-        conn,
-        f"SELECT c1.ChatID FROM ChatRelation c1 "
-        f"WHERE c1.ContactID={contact_id} "
-        f"  AND (SELECT COUNT(*) FROM ChatRelation c2 WHERE c2.ChatID=c1.ChatID)=2",
-        one=True,
-    )
-    if not chat_id:
-        raise ValueError(f"Found contact with name {name!r}, but no chat found.")
-
-    return chat_id[0]
+def select_chat_id(conn):
+    writer = csv.writer(sys.stdout, delimiter="\t")
+    writer.writerow(("chatID", "contact(s)"))
+    query = """
+        SELECT ChatRelation.ChatID AS chat_id,
+               coalesce(Contact.name, Contact.clientname) as contact
+        FROM ChatRelation
+        JOIN ChatInfo ON ChatInfo.ChatID = ChatRelation.ChatID
+        JOIN Contact ON Contact.ContactID = ChatRelation.ContactID
+        WHERE ChatRelation.ContactID != 1
+    """
+    chat_ids = set()
+    for chat_id, group in it.groupby(fetch(conn, query), itemgetter("chat_id")):
+        chat_ids.add(chat_id)
+        contacts = sorted(map(itemgetter("contact"), group))
+        writer.writerow((chat_id, ", ".join(contacts)))
+    try:
+        chat_id = int(input("\nPlease select one of the above chatIDs: "))
+        if chat_id in chat_ids:
+            return chat_id
+    except ValueError:
+        pass
+    return select_chat_id(conn)
 
 
 def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
@@ -98,7 +85,6 @@ def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
     if unixtime_end:
         filters.append(f"Events.timestamp < {1000 * unixtime_end}")
 
-    # filters.append("Messages.type in (6)")
     if filters:
         query += f" WHERE " + " AND ".join(filters)
     query += " ORDER BY Events.timestamp"
@@ -185,7 +171,7 @@ def main():
         "db", help="path to the Viber database file",
     )
     parser.add_argument(
-        "-n", "--name", help="name of the chat to extract messages from",
+        "-c", "--chat", help="chatID of the chat to extract messages from",
     )
     parser.add_argument(
         "-f", "--from", help="start date(-time) to filter from",
@@ -201,17 +187,13 @@ def main():
         help="split the chat log into sessions separated by at least M minutes of inactivity",
     )
     args = parser.parse_args()
-    start, end = [getattr(args, opt) for opt in ("from", "to")]
-    start, end = [dateparser.parse(s).timestamp() if s else None for s in (start, end)]
 
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
-    try:
-        chat_id = fetch_chat_id(conn, args.name)
-    except MultipleResultsException:
-        raise ValueError(f"Ambiguous name {args.name!r}: more than one contacts found")
-
+    chat_id = args.chat or select_chat_id(conn)
+    start, end = [getattr(args, opt) for opt in ("from", "to")]
+    start, end = [dateparser.parse(s).timestamp() if s else None for s in (start, end)]
     rows = fetch_chat(conn, chat_id, start, end)
     if args.session:
         inactivity = timedelta(minutes=args.session)

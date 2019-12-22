@@ -6,7 +6,7 @@ usually located at `C:\Users\*USERNAME*\AppData\Roaming\ViberPC\*YOURPHONE#*\vib
 
 ## Usage
 
-    usage: viber.py [-h] [-n NAME] [-f FROM] [-t TO] [-s M] db
+    usage: viber.py [-h] [-c CHAT] [-f FROM] [-t TO] [-s M] db
 
     Extract messages from a given SQLite database of Viber message logs.
 
@@ -15,7 +15,7 @@ usually located at `C:\Users\*USERNAME*\AppData\Roaming\ViberPC\*YOURPHONE#*\vib
 
     optional arguments:
       -h, --help            show this help message and exit
-      -n NAME, --name NAME  name of the chat to extract messages from
+      -c CHAT, --chat CHAT  chatID of the chat to extract messages from
       -f FROM, --from FROM  start date(-time) to filter from
       -t TO, --to TO        end date(-time) to filter to
       -s M, --session M     split the chat log into sessions separated by at least
