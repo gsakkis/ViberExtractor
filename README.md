@@ -1,25 +1,22 @@
 # ViberExtractor
-A python 3 script for extracting messages from Viber Desktop's sqlite message database into a text file.
+A python 3 script for extracting messages from Viber Desktop's SQLite message database.
 
-If you use Viber Desktop, all your messages are stored in a sqlite database. In windows, this is usually located at: C:\Users\*USERANAME*\AppData\Roaming\ViberPC\*YOURPHONE#*\viber.db
+If you use Viber Desktop, all your messages are stored in a SQLite database. On windows, this is
+usually located at `C:\Users\*USERNAME*\AppData\Roaming\ViberPC\*YOURPHONE#*\viber.db`
 
-to extract messages from viber.db with this script, download and run main.py
+## Usage
 
-supports optional cmd line arguments for location of output file, chat name to extract, and UNIX start/end times to filter messages by
+    usage: viber.py [-h] [-n NAME] [-f FROM] [-t TO] [-s M] db
 
-# Example Usage:
+    Extract messages from a given SQLite database of Viber message logs.
 
-python3 main.py viber.db --out "outfile.txt" --chatname "Sally"
+    positional arguments:
+      db                    path to the Viber database file
 
-# Example Output:
-
-12:31:54, From: Sally    , bro what was that type of cheese you had at lunch?
-
-14:44:56, From: Sally    , o sry wrong number
-
-14:45:12, From: Sally    , but I mean if u have any cheese recommendations...
-
-14:45:19, To  : Sally    , Not a cheese fan
-
-14:45:31, From: Sally    , Then why am I still talking to you
-
+    optional arguments:
+      -h, --help            show this help message and exit
+      -n NAME, --name NAME  name of the chat to extract messages from
+      -f FROM, --from FROM  start date(-time) to filter from
+      -t TO, --to TO        end date(-time) to filter to
+      -s M, --session M     split the chat log into sessions separated by at least
+                            M minutes of inactivity
