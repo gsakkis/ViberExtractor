@@ -94,13 +94,15 @@ def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
         yield dict(row, timestamp=parse(row["timestamp"]))
 
 
-def iter_sessions(rows, inactivity):
-    iter_date_sessions = (
-        (start.date(), list(map(itemgetter(1), group)))
-        for start, group in it.groupby(iter_start_rows(rows, inactivity), itemgetter(0))
-    )
-    for start_date, group in it.groupby(iter_date_sessions, itemgetter(0)):
-        yield start_date, list(map(itemgetter(1), group))
+def iter_daily_sessions(rows, inactivity=None):
+    if inactivity is None:
+        date_rows = ((row["timestamp"].date(), row) for row in rows)
+        return ((date, [session]) for date, session in group_by_first(date_rows))
+    else:
+        grouped_by_start = group_by_first(iter_start_rows(rows, inactivity))
+        return group_by_first(
+            (start.date(), session) for start, session in grouped_by_start
+        )
 
 
 def iter_start_rows(rows, inactivity):
@@ -115,6 +117,11 @@ def iter_start_rows(rows, inactivity):
         if cur_ts - prev_ts > inactivity:
             start = cur_ts
         yield start, cur_row
+
+
+def group_by_first(iterable):
+    for key, group in it.groupby(iterable, itemgetter(0)):
+        yield key, list(map(itemgetter(1), group))
 
 
 def extract_message(row):
@@ -195,17 +202,13 @@ def main():
     start, end = [getattr(args, opt) for opt in ("from", "to")]
     start, end = [dateparser.parse(s).timestamp() if s else None for s in (start, end)]
     rows = fetch_chat(conn, chat_id, start, end)
-    if args.session:
-        inactivity = timedelta(minutes=args.session)
-        for start_date, sessions in iter_sessions(rows, inactivity):
-            print(f"## {start_date}\n")
-            for session in sessions:
-                for line in session:
-                    print(format_message(line))
-                print()
-    else:
-        for line in rows:
-            print(format_message(line))
+    inactivity = timedelta(minutes=args.session) if args.session else None
+    for date, sessions in iter_daily_sessions(rows, inactivity):
+        print(f"## {date}\n")
+        for session in sessions:
+            for row in session:
+                print(format_message(row))
+            print()
 
 
 if __name__ == "__main__":
