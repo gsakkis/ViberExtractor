@@ -40,8 +40,6 @@ def fetch(conn, query, one=False):
 
 
 def select_chat_id(conn):
-    writer = csv.writer(sys.stdout, delimiter="\t")
-    writer.writerow(("chatID", "contact(s)"))
     query = """
         SELECT ChatRelation.ChatID AS chat_id,
                coalesce(Contact.name, Contact.clientname) as contact
@@ -50,18 +48,22 @@ def select_chat_id(conn):
         JOIN Contact ON Contact.ContactID = ChatRelation.ContactID
         WHERE ChatRelation.ContactID != 1
     """
-    chat_ids = set()
-    for chat_id, group in it.groupby(fetch(conn, query), itemgetter("chat_id")):
-        chat_ids.add(chat_id)
-        contacts = sorted(map(itemgetter("contact"), group))
-        writer.writerow((chat_id, ", ".join(contacts)))
-    try:
-        chat_id = int(input("\nPlease select one of the above chatIDs: "))
-        if chat_id in chat_ids:
-            return chat_id
-    except ValueError:
-        pass
-    return select_chat_id(conn)
+    rows = fetch(conn, query)
+    writer = csv.writer(sys.stderr, delimiter="\t")
+    while True:
+        chat_ids = set()
+        writer.writerow(("chatID", "contact(s)"))
+        for chat_id, group in it.groupby(rows, itemgetter("chat_id")):
+            chat_ids.add(chat_id)
+            contacts = sorted(map(itemgetter("contact"), group))
+            writer.writerow((chat_id, ", ".join(contacts)))
+        print("\nPlease select one of the above chatIDs: ", file=sys.stderr)
+        try:
+            chat_id = int(input())
+            if chat_id in chat_ids:
+                return chat_id
+        except ValueError:
+            pass
 
 
 def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
