@@ -7,10 +7,11 @@ import mimetypes
 import os
 import sqlite3
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from operator import itemgetter
 
-from dateutil import parser as dateparser
+from dateutil.tz import gettz
+from dateutil.parser import parse as parse_date
 
 
 MEDIA_TYPE_MAPPING = {
@@ -66,10 +67,10 @@ def select_chat_id(conn):
             pass
 
 
-def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
+def fetch_chat(conn, chat_id, tzinfo=None, start=None, end=None):
     query = """
     SELECT Events.EventID AS event_id,
-           datetime(Events.timestamp/1000, 'unixepoch') AS timestamp,
+           Events.timestamp/1000 AS timestamp,
            COALESCE(Contact.Name, Contact.ClientName) AS contact,
            Messages.Type AS type,
            Messages.Subject AS subject,
@@ -82,18 +83,17 @@ def fetch_chat(conn, chat_id, unixtime_start=None, unixtime_end=None):
     JOIN Contact ON Events.ContactID = Contact.ContactID
     """
     filters = [f"ChatId = {chat_id}"]
-    if unixtime_start:
-        filters.append(f"Events.timestamp >= {1000 * unixtime_start}")
-    if unixtime_end:
-        filters.append(f"Events.timestamp < {1000 * unixtime_end}")
+    if start:
+        filters.append(f"Events.timestamp >= {1000 * start.timestamp()}")
+    if end:
+        filters.append(f"Events.timestamp < {1000 * end.timestamp()}")
 
     if filters:
         query += f" WHERE " + " AND ".join(filters)
     query += " ORDER BY Events.timestamp"
 
-    parse = dateparser.parse
     for row in fetch(conn, query):
-        yield dict(row, timestamp=parse(row["timestamp"]))
+        yield dict(row, timestamp=datetime.fromtimestamp(row["timestamp"], tzinfo))
 
 
 def iter_daily_sessions(rows, inactivity=None):
@@ -167,7 +167,7 @@ def format_duration(msec):
 def format_message(row):
     msg = extract_message(row)
     msg = msg.strip() if isinstance(msg, str) else f"_{msg}_"
-    when = row["timestamp"].time()
+    when = row["timestamp"].strftime('%T %Z')
     who = row["contact"]
     return f"[{when}] **{who}**: {msg}"
 
@@ -189,6 +189,11 @@ def main():
         "-t", "--to", help="end date(-time) to filter to",
     )
     parser.add_argument(
+        "-z",
+        "--timezone",
+        help="convert timestamps to the given timezone; defaults to local timezone",
+    )
+    parser.add_argument(
         "-s",
         "--session",
         type=int,
@@ -200,10 +205,20 @@ def main():
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
 
+    if args.timezone:
+        tzinfo = gettz(args.timezone)
+        if tzinfo is None:
+            raise ValueError(f"Unknown timezone {args.timezone!r}")
+    else:
+        tzinfo = gettz()
+
+    start_end = [
+        parse_date(s, ignoretz=True).replace(tzinfo=tzinfo) if s is not None else None
+        for s in (getattr(args, opt) for opt in ("from", "to"))
+    ]
+
     chat_id = args.chat or select_chat_id(conn)
-    start, end = [getattr(args, opt) for opt in ("from", "to")]
-    start, end = [dateparser.parse(s).timestamp() if s else None for s in (start, end)]
-    rows = fetch_chat(conn, chat_id, start, end)
+    rows = fetch_chat(conn, chat_id, tzinfo, *start_end)
     inactivity = timedelta(minutes=args.session) if args.session else None
     for date, sessions in iter_daily_sessions(rows, inactivity):
         print(f"## {date}\n")
